@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet"
+    android:padding="16dp">
+
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="#D1D1D1"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Signaler"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="8dp"
+        android:textColor="#D32F2F"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Pourquoi signalez-vous cette publication ?"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:textColor="#757575"/>
+
+    <TextView
+        android:id="@+id/reportSpam"
+        style="@style/ReportOptionStyle"
+        android:text="C'est un spam" />
+
+    <TextView
+        android:id="@+id/reportInappropriate"
+        style="@style/ReportOptionStyle"
+        android:text="Contenu inapproprié" />
+
+    <TextView
+        android:id="@+id/reportHarassment"
+        style="@style/ReportOptionStyle"
+        android:text="Harcèlement ou intimidation" />
+
+    <TextView
+        android:id="@+id/reportFalseInfo"
+        style="@style/ReportOptionStyle"
+        android:layout_marginBottom="20dp"
+        android:text="Fausses informations" />
+
+</LinearLayout>

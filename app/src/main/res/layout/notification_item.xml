@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="10dp">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/image_profile"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:src="@drawable/ic_person"
+        android:scaleType="centerCrop" />
+
+    <TextView
+        android:id="@+id/username"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_toEndOf="@id/image_profile"
+        android:layout_marginStart="10dp"
+        android:textStyle="bold"
+        android:textColor="#000000" />
+
+    <TextView
+        android:id="@+id/comment"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_toEndOf="@id/image_profile"
+        android:layout_below="@id/username"
+        android:layout_marginStart="10dp"
+        android:layout_toStartOf="@id/post_image"
+        android:textColor="#424242" />
+
+    <TextView
+        android:id="@+id/time_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/comment"
+        android:layout_toEndOf="@id/image_profile"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="2dp"
+        android:textSize="12sp"
+        android:textColor="#9E9E9E" />
+
+    <ImageView
+        android:id="@+id/post_image"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_alignParentEnd="true"
+        android:scaleType="centerCrop"
+        android:visibility="gone" />
+
+</RelativeLayout>

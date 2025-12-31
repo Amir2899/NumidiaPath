@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="12dp"
+    android:background="?attr/selectableItemBackground">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/userItemImage"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_centerVertical="true"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_person"
+        app:shapeAppearanceOverlay="@style/CircleImage"
+        app:strokeColor="#EEEEEE"
+        app:strokeWidth="1dp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_toEndOf="@id/userItemImage"
+        android:layout_toStartOf="@id/userItemBtnFollow"
+        android:layout_centerVertical="true"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/userItemUsername"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="username"
+            android:textColor="#000000"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/userItemFullName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Prénom Nom"
+            android:textColor="#757575"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/userItemBtnFollow"
+        style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+        android:layout_width="100dp"
+        android:layout_height="36dp"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:text="Suivre"
+        android:textAllCaps="false"
+        android:textSize="12sp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        app:cornerRadius="18dp" />
+
+</RelativeLayout>

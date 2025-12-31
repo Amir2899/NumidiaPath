@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_settings"
+        android:title="Paramètres et confidentialité"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_change_password"
+        android:title="Modifier le mot de passe"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_delete_account"
+        android:title="Supprimer mon compte"
+        android:icon="@android:drawable/ic_menu_delete"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_logout"
+        android:title="Se déconnecter"
+        android:fontFamily="sans-serif-medium"
+        app:showAsAction="never" />
+</menu>
