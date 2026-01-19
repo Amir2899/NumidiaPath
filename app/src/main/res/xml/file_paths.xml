@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <external-cache-path name="my_cache_images" path="." />
-    <external-path name="my_external_images" path="." />
-    <cache-path name="my_app_cache" path="." />
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="shared_images" path="shared_images/" />
+
+    <external-path name="external_files" path="." />
+
+    <cache-path name="my_cache" path="." />
 </paths>

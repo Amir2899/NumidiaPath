@@ -14,6 +14,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ServerValue;
+import com.google.firebase.firestore.FirebaseFirestore; // Ajouté pour la synchro binôme
 
 import java.util.HashMap;
 import java.util.Map;
@@ -29,6 +30,9 @@ public class NotificationHelper {
     public static final String TYPE_LIKE = "a aimé votre photo";
     public static final String TYPE_COMMENT = "a commenté : ";
     public static final String TYPE_FOLLOW = "vient de s'abonner";
+
+    // --- INTEGRATION BINOME ---
+    public static final String TYPE_TRAVEL_SYNC = "a ajouté une nouvelle destination planifiable";
 
     /**
      * Affiche l'alerte système (le bandeau blanc en haut de l'écran)
@@ -50,7 +54,7 @@ public class NotificationHelper {
         );
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification) // Vérifie que cette icône existe
+                .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -88,5 +92,26 @@ public class NotificationHelper {
         reference.push().setValue(notificationData)
                 .addOnSuccessListener(aVoid -> Log.d("NotificationHelper", "Succès : Notification enregistrée avec heure réelle"))
                 .addOnFailureListener(e -> Log.e("NotificationHelper", "Erreur d'envoi : " + e.getMessage()));
+    }
+
+    /**
+     * --- NOUVELLE MÉTHODE D'INTÉGRATION ---
+     * Notifie le système TravelPath (binôme) qu'une nouvelle destination est disponible.
+     * Cette méthode écrit dans FIRESTORE car l'application du binôme écoute Firestore.
+     */
+    public static void notifyNewDestination(String locationName, String senderName) {
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
+
+        Map<String, Object> syncNotif = new HashMap<>();
+        syncNotif.put("type", "NEW_DESTINATION");
+        syncNotif.put("location", locationName);
+        syncNotif.put("sender", senderName);
+        syncNotif.put("timestamp", com.google.firebase.firestore.FieldValue.serverTimestamp());
+
+        // On écrit dans une collection "sync_notifications"
+        // L'app de ton binôme doit mettre un SnapshotListener sur cette collection
+        db.collection("sync_notifications").add(syncNotif)
+                .addOnSuccessListener(documentReference -> Log.d("SyncNotif", "Signal envoyé au binôme"))
+                .addOnFailureListener(e -> Log.e("SyncNotif", "Erreur signal : " + e.getMessage()));
     }
 }

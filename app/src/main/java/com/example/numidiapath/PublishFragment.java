@@ -40,6 +40,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.mlkit.vision.common.InputImage;
@@ -50,8 +51,10 @@ import com.google.mlkit.vision.label.defaults.ImageLabelerOptions;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 public class PublishFragment extends Fragment {
@@ -109,6 +112,7 @@ public class PublishFragment extends Fragment {
         storage = FirebaseStorage.getInstance();
         db = FirebaseFirestore.getInstance();
 
+        // LIAISON DES VUES
         imageToPublish = view.findViewById(R.id.imageToPublish);
         textTapToSelect = view.findViewById(R.id.textTapToSelect);
         editCaption = view.findViewById(R.id.editCaption);
@@ -118,14 +122,18 @@ public class PublishFragment extends Fragment {
         chipGroupTags = view.findViewById(R.id.chipGroupTags);
         spinnerGroups = view.findViewById(R.id.spinnerGroups);
 
-        view.findViewById(R.id.cardSelectImage).setOnClickListener(v -> showImagePickerDialog());
+        // FIX : Utilisation correcte de findViewById pour le clic sur la carte
+        View cardSelectImage = view.findViewById(R.id.cardSelectImage);
+        if (cardSelectImage != null) {
+            cardSelectImage.setOnClickListener(v -> showImagePickerDialog());
+        }
+
         btnShare.setOnClickListener(v -> startPublishingProcess());
 
         loadUserGroups();
 
         return view;
     }
-
     private void loadUserGroups() {
         FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
         if (user == null) return;
@@ -278,13 +286,15 @@ public class PublishFragment extends Fragment {
 
                 db.collection("posts").document(postId).set(newPost)
                         .addOnSuccessListener(aVoid -> {
-                            Log.d("NOTIF_DEBUG", "Post enregistré avec succès.");
+                            Log.d("INTEGRATION", "Post TravelShare enregistré.");
                             FirestoreHelper.incrementPostCount(user.getUid());
 
-                            // Lancer les notifications
+                            // --- INTEGRATION BINOME : Envoi synchronisé vers 'routes' ---
+                            saveToBinomeDatabase(finalFullAddress, caption, uri.toString(), displayName);
+
+                            // Notifications internes
                             handleMultipleNotifications(user.getUid(), displayName, selectedGroupId);
 
-                            // Petit délai pour laisser les notifications partir avant de changer de Fragment
                             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                                 if (isAdded()) {
                                     NotificationHelper.showNotification(getContext(), "NumidiaPath", "Publication réussie !");
@@ -300,25 +310,39 @@ public class PublishFragment extends Fragment {
         }).addOnFailureListener(e -> resetUI(e.getMessage()));
     }
 
-    private void handleMultipleNotifications(String currentUserId, String senderName, String groupId) {
-        Log.d("NOTIF_DEBUG", "Début handleMultipleNotifications pour : " + currentUserId);
+    private void saveToBinomeDatabase(String location, String caption, String imageUrl, String senderName) {
+        Map<String, Object> routeData = new HashMap<>();
+        routeData.put("destinationName", location);
+        routeData.put("description", caption);
+        routeData.put("imageUrl", imageUrl);
+        routeData.put("rating", 5.0f); // Note par défaut pour l'affichage binôme
+        routeData.put("budget", 250.0);
+        routeData.put("duration", 2);
+        routeData.put("effortLevel", "Actif");
 
-        // 1. Notifier les abonnés (Followers)
+        // Enregistrement dans la collection 'routes' que le binôme écoute en temps réel
+        db.collection("routes").document(location)
+                .set(routeData, SetOptions.merge())
+                .addOnSuccessListener(aVoid -> {
+                    Log.d("INTEGRATION", "Données envoyées à TravelPath (routes)");
+                    // Déclenchement de la cloche de notification sur l'app du binôme
+                    NotificationHelper.notifyNewDestination(location, senderName);
+                })
+                .addOnFailureListener(e -> Log.e("INTEGRATION", "Erreur synchro : " + e.getMessage()));
+    }
+
+    private void handleMultipleNotifications(String currentUserId, String senderName, String groupId) {
         db.collection("users").document(currentUserId)
                 .collection("followers").get()
                 .addOnSuccessListener(snapshots -> {
-                    if (snapshots != null && !snapshots.isEmpty()) {
-                        Log.d("NOTIF_DEBUG", "Followers trouvés : " + snapshots.size());
+                    if (snapshots != null) {
                         for (DocumentSnapshot doc : snapshots) {
                             NotificationHelper.sendNotificationToUser(doc.getId(), senderName, "a publié une nouvelle photo");
                         }
-                    } else {
-                        Log.d("NOTIF_DEBUG", "Aucun follower trouvé.");
                     }
-                }).addOnFailureListener(e -> Log.e("NOTIF_DEBUG", "Erreur Followers: " + e.getMessage()));
+                });
 
-        // 2. Notifier les membres du groupe
-        if (groupId != null && !groupId.isEmpty()) {
+        if (!groupId.isEmpty()) {
             db.collection("groups").document(groupId).get().addOnSuccessListener(doc -> {
                 if (doc.exists()) {
                     List<String> members = (List<String>) doc.get("members");
@@ -334,12 +358,10 @@ public class PublishFragment extends Fragment {
             });
         }
 
-        // 3. Notifier pour le lieu
         if (finalFullAddress != null && !finalFullAddress.isEmpty()) {
             db.collection("users").whereArrayContains("followedLocations", finalFullAddress).get()
                     .addOnSuccessListener(snapshots -> {
-                        if (snapshots != null && !snapshots.isEmpty()) {
-                            Log.d("NOTIF_DEBUG", "Fans de lieu trouvés : " + snapshots.size());
+                        if (snapshots != null) {
                             for (DocumentSnapshot doc : snapshots) {
                                 if (!doc.getId().equals(currentUserId)) {
                                     NotificationHelper.sendNotificationToUser(doc.getId(), "Lieu : " + finalFullAddress, senderName + " a posté ici");
@@ -349,13 +371,11 @@ public class PublishFragment extends Fragment {
                     });
         }
 
-        // 4. Notifier pour les tags
-        if (detectedTags != null && !detectedTags.isEmpty()) {
+        if (detectedTags != null) {
             for (String tag : detectedTags) {
                 db.collection("users").whereArrayContains("followedTags", tag).get()
                         .addOnSuccessListener(snapshots -> {
-                            if (snapshots != null && !snapshots.isEmpty()) {
-                                Log.d("NOTIF_DEBUG", "Fans du tag #" + tag + " trouvés : " + snapshots.size());
+                            if (snapshots != null) {
                                 for (DocumentSnapshot doc : snapshots) {
                                     if (!doc.getId().equals(currentUserId)) {
                                         NotificationHelper.sendNotificationToUser(doc.getId(), "Tag: #" + tag, senderName + " a posté une photo");
@@ -374,7 +394,7 @@ public class PublishFragment extends Fragment {
 
     private void setLoading(boolean isLoading) {
         btnShare.setEnabled(!isLoading);
-        btnShare.setText(isLoading ? "Analyse & Envoi..." : "Partager");
+        btnShare.setText(isLoading ? "Analyse..." : "Partager");
         progressBar.setVisibility(isLoading ? View.VISIBLE : View.GONE);
     }
 

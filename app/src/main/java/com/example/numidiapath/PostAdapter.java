@@ -1,8 +1,13 @@
 package com.example.numidiapath;
 
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -11,10 +16,13 @@ import android.widget.ImageView;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.bumptech.glide.Glide;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
@@ -23,9 +31,20 @@ import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder> {
 
@@ -41,11 +60,20 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     public PostViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
         View view;
-        if (parent instanceof RecyclerView && ((RecyclerView) parent).getLayoutManager() instanceof GridLayoutManager) {
-            view = inflater.inflate(R.layout.item_explore, parent, false);
+
+        // On vérifie si le parent est bien un RecyclerView avant de caster
+        if (parent instanceof RecyclerView) {
+            RecyclerView recyclerView = (RecyclerView) parent;
+            if (recyclerView.getLayoutManager() instanceof GridLayoutManager) {
+                view = inflater.inflate(R.layout.item_explore, parent, false);
+            } else {
+                view = inflater.inflate(R.layout.item_post, parent, false);
+            }
         } else {
+            // Cas par défaut au cas où
             view = inflater.inflate(R.layout.item_post, parent, false);
         }
+
         return new PostViewHolder(view);
     }
 
@@ -57,17 +85,18 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         boolean isAnonymous = (currentUser == null || currentUser.isAnonymous());
         String currentUserId = (currentUser != null) ? currentUser.getUid() : null;
 
-        // --- 1. GESTION DE L'AUTEUR (Temps Réel) ---
+        // --- 1. GESTION DE L'AUTEUR (Sécurisée) ---
         cleanupListener(holder);
         if (post.getPublisherId() != null) {
             ListenerRegistration registration = FirebaseFirestore.getInstance().collection("users")
                     .document(post.getPublisherId())
                     .addSnapshotListener((document, error) -> {
+                        // FIX: Vérifier que le contexte est toujours valide pour Glide
                         if (document != null && document.exists() && holder.getAdapterPosition() != RecyclerView.NO_POSITION) {
                             String realUsername = document.getString("username");
                             String realProfilePic = document.getString("profileImageUrl");
                             if (holder.username != null) holder.username.setText(realUsername != null ? realUsername : "Anonyme");
-                            if (holder.imageProfile != null) {
+                            if (holder.imageProfile != null && realProfilePic != null) {
                                 Glide.with(holder.itemView.getContext()).load(realProfilePic).circleCrop().placeholder(R.drawable.ic_person).into(holder.imageProfile);
                             }
                         }
@@ -75,28 +104,37 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             userListeners.put(holder.hashCode(), registration);
         }
 
-        // --- 2. CONTENU DU POST ---
+        // --- 2. CONTENU DU POST & INTEGRATION ---
         if (holder.locationDate != null) {
-            holder.locationDate.setText(post.getLocation());
-            // CLIC SUR LA LOCALISATION POUR SUIVRE LE LIEU
+            holder.locationDate.setText(post.getLocation() != null ? post.getLocation() : "Lieu inconnu");
+
             holder.locationDate.setOnClickListener(v -> {
-                if (isAnonymous) showAnonWarning(v);
-                else showFollowDialog(v, post.getLocation(), "followedLocations");
+                PopupMenu locationMenu = new PopupMenu(v.getContext(), v);
+                locationMenu.getMenu().add("Suivre ce lieu");
+                locationMenu.getMenu().add("Planifier un voyage ici (TravelPath)");
+                locationMenu.setOnMenuItemClickListener(item -> {
+                    if (item.getTitle().equals("Suivre ce lieu")) {
+                        if (isAnonymous) showAnonWarning(v);
+                        else showFollowDialog(v, post.getLocation(), "followedLocations");
+                    } else {
+                        // ENVOI VERS L'AUTRE APP (Destination + Image URL)
+                        openTravelPathDeepLink(v.getContext(), post.getLocation(), post.getImageUrl());
+                    }
+                    return true;
+                });
+                locationMenu.show();
             });
         }
 
-        if (holder.description != null) holder.description.setText(post.getCaption());
+        if (holder.description != null) holder.description.setText(post.getCaption() != null ? post.getCaption() : "");
 
-        // GESTION DES TAGS (ChipGroup)
+        // GESTION DES TAGS
         if (holder.chipGroupTags != null) {
             holder.chipGroupTags.removeAllViews();
             if (post.getTags() != null) {
                 for (String tag : post.getTags()) {
                     Chip chip = new Chip(holder.itemView.getContext());
                     chip.setText("#" + tag);
-                    chip.setChipMinHeight(60f);
-                    chip.setTextSize(12f);
-                    // CLIC SUR LE TAG POUR SUIVRE
                     chip.setOnClickListener(v -> {
                         if (isAnonymous) showAnonWarning(v);
                         else showFollowDialog(v, tag, "followedTags");
@@ -108,21 +146,9 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
 
         if (holder.imagePost != null && post.getImageUrl() != null) {
             Glide.with(holder.itemView.getContext()).load(post.getImageUrl()).centerCrop().placeholder(android.R.drawable.ic_menu_gallery).into(holder.imagePost);
-            holder.imagePost.setOnClickListener(new View.OnClickListener() {
-                private long lastClickTime = 0;
-                @Override
-                public void onClick(View v) {
-                    long clickTime = System.currentTimeMillis();
-                    if (clickTime - lastClickTime < 300) {
-                        if (isAnonymous) showAnonWarning(v);
-                        else { animateView(holder.btnLike); handleLikeAction(post, currentUserId); }
-                    }
-                    lastClickTime = clickTime;
-                }
-            });
         }
 
-        // --- 3. INTERACTIONS (Like, Save, Comment, Menu) ---
+        // --- 3. INTERACTIONS ---
         updateLikeUI(holder, post, currentUserId, isAnonymous);
 
         if (holder.btnLike != null) {
@@ -141,56 +167,53 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             });
         }
 
+        if (holder.btnComment != null) {
+            holder.btnComment.setOnClickListener(v -> {
+                if (post.getPostId() != null) {
+                    CommentBottomSheet commentSheet = new CommentBottomSheet(post.getPostId());
+                    commentSheet.show(((AppCompatActivity) v.getContext()).getSupportFragmentManager(), "CommentSheet");
+                }
+            });
+        }
+
         if (holder.btnReport != null) {
             holder.btnReport.setOnClickListener(v -> {
                 if (isAnonymous) showAnonWarning(v);
                 else showPopupMenu(v, post, currentUserId);
             });
         }
+    }
 
-        if (holder.btnComment != null) {
-            holder.btnComment.setOnClickListener(v -> {
-                CommentBottomSheet commentSheet = new CommentBottomSheet(post.getPostId());
-                commentSheet.show(((AppCompatActivity) v.getContext()).getSupportFragmentManager(), "CommentSheet");
-            });
+    // MÉTHODE DEEP LINK MISE À JOUR (Passage Destination + Image)
+    private void openTravelPathDeepLink(Context context, String location, String imageUrl) {
+        if (location == null) return;
+
+        Uri uri = Uri.parse("numediapath://planifier")
+                .buildUpon()
+                .appendQueryParameter("destination", location)
+                .appendQueryParameter("image_url", imageUrl != null ? imageUrl : "")
+                .build();
+
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            context.startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(context, "Application TravelPath non installée.", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // MÉTHODE POUR CONFIRMER L'ABONNEMENT À UN TAG OU LIEU
-    private void showFollowDialog(View v, String value, String fieldName) {
-        String currentUserId = FirebaseAuth.getInstance().getUid();
-        String type = fieldName.equals("followedTags") ? "le tag #" : "le lieu ";
-
-        new AlertDialog.Builder(v.getContext())
-                .setTitle("Suivre")
-                .setMessage("Voulez-vous suivre " + type + value + " pour recevoir des notifications ?")
-                .setPositiveButton("Suivre", (dialog, which) -> {
-                    FirebaseFirestore.getInstance().collection("users").document(currentUserId)
-                            .update(fieldName, FieldValue.arrayUnion(value))
-                            .addOnSuccessListener(aVoid -> Toast.makeText(v.getContext(), "Abonnement réussi : " + value, Toast.LENGTH_SHORT).show());
-                })
-                .setNegativeButton("Annuler", null)
-                .show();
-    }
-
     private void handleLikeAction(Post post, String currentUserId) {
+        if (post.getPostId() == null || currentUserId == null) return;
         FirebaseFirestore db = FirebaseFirestore.getInstance();
         boolean isAlreadyLiked = post.getLikedBy() != null && post.getLikedBy().contains(currentUserId);
         db.collection("posts").document(post.getPostId())
-                .update("likedBy", isAlreadyLiked ? FieldValue.arrayRemove(currentUserId) : FieldValue.arrayUnion(currentUserId))
-                .addOnSuccessListener(aVoid -> {
-                    if (!isAlreadyLiked && !currentUserId.equals(post.getPublisherId())) {
-                        db.collection("users").document(currentUserId).get().addOnSuccessListener(doc -> {
-                            String senderName = doc.getString("username");
-                            NotificationHelper.sendNotificationToUser(post.getPublisherId(), senderName != null ? senderName : "Un utilisateur", "a aimé votre photo");
-                        });
-                    }
-                });
+                .update("likedBy", isAlreadyLiked ? FieldValue.arrayRemove(currentUserId) : FieldValue.arrayUnion(currentUserId));
     }
 
     private void updateLikeUI(PostViewHolder holder, Post post, String userId, boolean isAnon) {
         int likesCount = (post.getLikedBy() != null) ? post.getLikedBy().size() : 0;
-        if (holder.textLikeCount != null) holder.textLikeCount.setText(likesCount + (likesCount > 1 ? " likes" : " like"));
+        if (holder.textLikeCount != null) holder.textLikeCount.setText(likesCount + " likes");
         if (holder.btnLike != null) {
             boolean isLiked = !isAnon && post.getLikedBy() != null && post.getLikedBy().contains(userId);
             holder.btnLike.setImageResource(isLiked ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
@@ -198,11 +221,40 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         }
     }
 
+    private void toggleSave(Post post, String userId) {
+        if (post.getPostId() == null || userId == null) return;
+        boolean isSaved = post.getSavedBy() != null && post.getSavedBy().contains(userId);
+        FirebaseFirestore.getInstance().collection("posts").document(post.getPostId())
+                .update("savedBy", isSaved ? FieldValue.arrayRemove(userId) : FieldValue.arrayUnion(userId));
+    }
+
+    private void showFollowDialog(View v, String value, String fieldName) {
+        String currentUserId = FirebaseAuth.getInstance().getUid();
+        if (currentUserId == null) return;
+
+        new AlertDialog.Builder(v.getContext())
+                .setTitle("Suivre")
+                .setMessage("Voulez-vous suivre " + value + " ?")
+                .setPositiveButton("Oui", (dialog, which) -> {
+                    FirebaseFirestore.getInstance().collection("users").document(currentUserId)
+                            .update(fieldName, FieldValue.arrayUnion(value))
+                            .addOnSuccessListener(aVoid -> Toast.makeText(v.getContext(), "Abonnement réussi", Toast.LENGTH_SHORT).show());
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
     private void showPopupMenu(View v, Post post, String currentUserId) {
         PopupMenu popup = new PopupMenu(v.getContext(), v);
+        if (post.getPublisherId() == null || currentUserId == null) return;
+
         boolean isOwner = post.getPublisherId().equals(currentUserId);
-        if (isOwner) { popup.getMenu().add("Modifier la légende"); popup.getMenu().add("Supprimer la publication"); }
-        else { popup.getMenu().add("Signaler le contenu"); }
+        if (isOwner) {
+            popup.getMenu().add("Modifier la légende");
+            popup.getMenu().add("Supprimer la publication");
+        } else {
+            popup.getMenu().add("Signaler le contenu");
+        }
         popup.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
             if (title.contains("Supprimer")) confirmDeletion(post, v);
@@ -214,39 +266,28 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     }
 
     private void confirmDeletion(Post post, View v) {
-        new AlertDialog.Builder(v.getContext()).setTitle("Supprimer").setMessage("Voulez-vous supprimer cette publication ?")
+        new AlertDialog.Builder(v.getContext()).setTitle("Supprimer").setMessage("Voulez-vous supprimer ?")
                 .setPositiveButton("Supprimer", (d, i) -> {
-                    FirebaseFirestore.getInstance().collection("posts").document(post.getPostId()).delete()
-                            .addOnSuccessListener(aVoid -> {
-                                FirestoreHelper.decrementPostCount(post.getPublisherId());
-                                Toast.makeText(v.getContext(), "Supprimé", Toast.LENGTH_SHORT).show();
-                            });
+                    FirebaseFirestore.getInstance().collection("posts").document(post.getPostId()).delete();
                 }).setNegativeButton("Annuler", null).show();
-    }
-
-    private void toggleSave(Post post, String userId) {
-        boolean isSaved = post.getSavedBy() != null && post.getSavedBy().contains(userId);
-        FirebaseFirestore.getInstance().collection("posts").document(post.getPostId())
-                .update("savedBy", isSaved ? FieldValue.arrayRemove(userId) : FieldValue.arrayUnion(userId));
     }
 
     private void showEditDialog(Post post, View v) {
         EditText input = new EditText(v.getContext()); input.setText(post.getCaption());
-        new AlertDialog.Builder(v.getContext()).setTitle("Modifier la légende").setView(input)
+        new AlertDialog.Builder(v.getContext()).setTitle("Modifier").setView(input)
                 .setPositiveButton("Enregistrer", (d, w) -> {
-                    FirebaseFirestore.getInstance().collection("posts").document(post.getPostId()).update("caption", input.getText().toString().trim());
+                    FirebaseFirestore.getInstance().collection("posts").document(post.getPostId()).update("caption", input.getText().toString());
                 }).setNegativeButton("Annuler", null).show();
     }
 
     private void animateView(View v) {
         if (v == null) return;
         v.animate().scaleX(0.8f).scaleY(0.8f).setDuration(100).withEndAction(() ->
-                v.animate().scaleX(1.2f).scaleY(1.2f).setDuration(100).withEndAction(() ->
-                        v.animate().scaleX(1.0f).scaleY(1.0f).start())).start();
+                v.animate().scaleX(1.0f).scaleY(1.0f).start()).start();
     }
 
     private void showAnonWarning(View v) {
-        Toast.makeText(v.getContext(), "Connexion requise pour interagir", Toast.LENGTH_SHORT).show();
+        Toast.makeText(v.getContext(), "Connexion requise", Toast.LENGTH_SHORT).show();
     }
 
     private void cleanupListener(PostViewHolder holder) {
@@ -268,7 +309,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     public static class PostViewHolder extends RecyclerView.ViewHolder {
         TextView username, locationDate, description, textLikeCount;
         ImageView imagePost, btnLike, btnComment, btnReport, btnSave, imageProfile;
-        ChipGroup chipGroupTags; // Ajout du support pour les chips
+        ChipGroup chipGroupTags;
 
         public PostViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -282,7 +323,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             btnReport = itemView.findViewById(R.id.btnReport);
             btnSave = itemView.findViewById(R.id.btnSave);
             imageProfile = itemView.findViewById(R.id.imageProfile);
-            chipGroupTags = itemView.findViewById(R.id.chipGroupPostTags); // Assure-toi que cet ID existe dans item_post.xml
+            chipGroupTags = itemView.findViewById(R.id.chipGroupPostTags);
         }
     }
 }
